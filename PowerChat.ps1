@@ -31,8 +31,8 @@ if ([string]::IsNullOrWhiteSpace($userProfilePath)) {
     throw 'Cannot determine the current user profile directory.'
 }
 
-$isWindowsPlatform = ($PSVersionTable.PSEdition -eq 'Desktop') -or ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)
-$script:StateDirectory = if ($isWindowsPlatform) {
+$script:IsWindowsPlatform = ($PSVersionTable.PSEdition -eq 'Desktop') -or ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)
+$script:StateDirectory = if ($script:IsWindowsPlatform) {
     Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PowerChat'
 }
 else {
@@ -42,6 +42,7 @@ $script:SessionPath = Join-Path $script:StateDirectory 'session.json'
 $script:Session = $null
 $script:LastMessageId = [long]0
 $script:Nickname = ''
+$script:NotificationIcon = $null
 
 function Get-ApiErrorText {
     param([Parameter(Mandatory)] $ErrorRecord)
@@ -362,6 +363,71 @@ function Show-PowerChatLogo {
     Write-Host $script:Logo -ForegroundColor Cyan
 }
 
+function Initialize-WindowsNotifications {
+    if (-not $script:IsWindowsPlatform -or $null -ne $script:NotificationIcon) {
+        return
+    }
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+
+        $script:NotificationIcon = [System.Windows.Forms.NotifyIcon]::new()
+        $script:NotificationIcon.Icon = [System.Drawing.SystemIcons]::Information
+        $script:NotificationIcon.Text = $script:ChatName
+        $script:NotificationIcon.Visible = $true
+    }
+    catch {
+        $script:NotificationIcon = $null
+    }
+}
+
+function Show-WindowsMessageNotification {
+    param([Parameter(Mandatory)] $Message)
+
+    if (
+        $null -eq $script:NotificationIcon -or
+        [string]$Message.user_id -eq [string]$script:Session.user_id
+    ) {
+        return
+    }
+
+    try {
+        $sender = if ($Message.profiles -and $Message.profiles.nickname) {
+            [string]$Message.profiles.nickname
+        }
+        else {
+            'New message'
+        }
+        $preview = (([string]$Message.content) -replace '[\r\n]+', ' ').Trim()
+        if ($preview.Length -gt 200) {
+            $preview = $preview.Substring(0, 197) + '...'
+        }
+
+        $script:NotificationIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+        $script:NotificationIcon.BalloonTipTitle = $sender
+        $script:NotificationIcon.BalloonTipText = $preview
+        $script:NotificationIcon.ShowBalloonTip(5000)
+    }
+    catch {
+        # Notifications must never interrupt the chat.
+    }
+}
+
+function Close-WindowsNotifications {
+    if ($null -eq $script:NotificationIcon) {
+        return
+    }
+
+    try {
+        $script:NotificationIcon.Visible = $false
+        $script:NotificationIcon.Dispose()
+    }
+    finally {
+        $script:NotificationIcon = $null
+    }
+}
+
 function Write-InputPrompt {
     param([Parameter(Mandatory)] [Text.StringBuilder] $Buffer)
 
@@ -442,6 +508,7 @@ function Start-ChatLoop {
         Write-ChatMessage -Message $message
     }
 
+    Initialize-WindowsNotifications
     Update-Presence
     $buffer = [Text.StringBuilder]::new()
     $lastPoll = [DateTimeOffset]::UtcNow
@@ -499,6 +566,7 @@ function Start-ChatLoop {
                         Clear-CurrentInputLine
                         foreach ($message in $newMessages) {
                             Write-ChatMessage -Message $message
+                            Show-WindowsMessageNotification -Message $message
                         }
                         Write-InputPrompt -Buffer $buffer
                     }
@@ -517,6 +585,7 @@ function Start-ChatLoop {
         }
     }
     finally {
+        Close-WindowsNotifications
         [Console]::TreatControlCAsInput = $oldTreatControlC
         Clear-CurrentInputLine
         Write-Host 'Disconnected from PowerChat. See you soon!' -ForegroundColor Cyan
