@@ -15,6 +15,16 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
 $script:ChatName = 'PowerChat Global'
 $script:SupabaseUrl = 'https://nuygiylrrtzlelgalgsq.supabase.co'
 $script:PublishableKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51eWdpeWxycnR6bGVsZ2FsZ3NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTgwNjksImV4cCI6MjEwMjA3NDA2OX0.QqbvLUbNODT-HjMyWYNRNIMaaljCrhP4RbgZJA1l2SU'
+$script:Logo = @'
+8888888b.                                      .d8888b. 888             888
+888   Y88b                                    d88P  Y88b888             888
+888    888                                    888    888888             888
+888   d88P .d88b. 888  888  888 .d88b. 888d888888       88888b.  8888b. 888888
+8888888P" d88""88b888  888  888d8P  Y8b888P"  888       888 "88b    "88b888
+888       888  888888  888  88888888888888    888    888888  888.d888888888
+888       Y88..88PY88b 888 d88PY8b.    888    Y88b  d88P888  888888  888Y88b.
+888        "Y88P"  "Y8888888P"  "Y8888 888     "Y8888P" 888  888"Y888888 "Y888
+'@
 
 $userProfilePath = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
 if ([string]::IsNullOrWhiteSpace($userProfilePath)) {
@@ -348,6 +358,10 @@ function Clear-CurrentInputLine {
     Write-Host "`r$spaces`r" -NoNewline
 }
 
+function Show-PowerChatLogo {
+    Write-Host $script:Logo -ForegroundColor Cyan
+}
+
 function Write-InputPrompt {
     param([Parameter(Mandatory)] [Text.StringBuilder] $Buffer)
 
@@ -400,7 +414,8 @@ function Invoke-ChatCommand {
         }
         '/clear' {
             Clear-Host
-            Write-Host $script:ChatName -ForegroundColor Cyan
+            Show-PowerChatLogo
+            Write-Host "  $($script:ChatName)" -ForegroundColor Cyan
         }
         '/quit' {
             return $false
@@ -414,6 +429,7 @@ function Invoke-ChatCommand {
 
 function Start-ChatLoop {
     Clear-Host
+    Show-PowerChatLogo
     Write-Host ('=' * 64) -ForegroundColor DarkCyan
     Write-Host "  $($script:ChatName)" -ForegroundColor Cyan
     Write-Host "  Your saved nickname: $($script:Nickname)" -ForegroundColor DarkGray
