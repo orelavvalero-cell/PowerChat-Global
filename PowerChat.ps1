@@ -478,6 +478,25 @@ function Show-PowerChatLogo {
     Write-Host $script:Logo -ForegroundColor Cyan
 }
 
+function Show-ChatHeader {
+    Clear-Host
+    Show-PowerChatLogo
+    Write-Host ('=' * 64) -ForegroundColor DarkCyan
+    Write-Host "  $($script:ChatName)" -ForegroundColor Cyan
+    Write-Host "  Your saved nickname: $($script:Nickname)" -ForegroundColor DarkGray
+    Write-Host '  Public room: messages are visible to every participant.' -ForegroundColor Yellow
+    Write-Host '  Type /help for commands.' -ForegroundColor DarkGray
+    Write-Host ('=' * 64) -ForegroundColor DarkCyan
+}
+
+function Redraw-ChatWindow {
+    Show-ChatHeader
+    $history = @(Get-NewMessages -Initial)
+    foreach ($message in $history) {
+        Write-ChatMessage -Message $message
+    }
+}
+
 function Initialize-WindowsNotifications {
     if (-not $script:IsWindowsPlatform -or $null -ne $script:NotificationIcon) {
         return
@@ -592,6 +611,7 @@ function Invoke-ChatCommand {
         '/sticker' {
             if ($parts.Count -lt 2) { throw 'Usage: /sticker heart. Type /stickers to see all names.' }
             Send-ChatSticker -Name $parts[1]
+            Redraw-ChatWindow
         }
         '/nick' {
             if ($parts.Count -lt 2) { throw 'Usage: /nick NewName' }
@@ -610,9 +630,7 @@ function Invoke-ChatCommand {
             Write-Host 'Thank you. The report was saved for moderators.' -ForegroundColor Green
         }
         '/clear' {
-            Clear-Host
-            Show-PowerChatLogo
-            Write-Host "  $($script:ChatName)" -ForegroundColor Cyan
+            Show-ChatHeader
         }
         '/quit' {
             return $false
@@ -625,19 +643,7 @@ function Invoke-ChatCommand {
 }
 
 function Start-ChatLoop {
-    Clear-Host
-    Show-PowerChatLogo
-    Write-Host ('=' * 64) -ForegroundColor DarkCyan
-    Write-Host "  $($script:ChatName)" -ForegroundColor Cyan
-    Write-Host "  Your saved nickname: $($script:Nickname)" -ForegroundColor DarkGray
-    Write-Host '  Public room: messages are visible to every participant.' -ForegroundColor Yellow
-    Write-Host '  Type /help for commands.' -ForegroundColor DarkGray
-    Write-Host ('=' * 64) -ForegroundColor DarkCyan
-
-    $history = @(Get-NewMessages -Initial)
-    foreach ($message in $history) {
-        Write-ChatMessage -Message $message
-    }
+    Redraw-ChatWindow
 
     Initialize-WindowsNotifications
     Update-Presence
