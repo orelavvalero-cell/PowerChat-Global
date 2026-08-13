@@ -2,7 +2,8 @@
 
 [CmdletBinding()]
 param(
-    [switch] $ValidateOnly
+    [switch] $ValidateOnly,
+    [switch] $StickerPreview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,7 @@ $script:Session = $null
 $script:LastMessageId = [long]0
 $script:Nickname = ''
 $script:NotificationIcon = $null
+$script:StickerNames = @('heart', 'smile', 'cat', 'flower', 'rocket', 'party')
 
 function Get-ApiErrorText {
     param([Parameter(Mandatory)] $ErrorRecord)
@@ -281,6 +283,100 @@ function Get-NewMessages {
     return $messages
 }
 
+function Get-ChatStickerDefinition {
+    param([Parameter(Mandatory)] [string] $Name)
+
+    switch ($Name.ToLowerInvariant()) {
+        'heart' {
+            return [pscustomobject]@{
+                Name = 'heart'; Title = 'HEART'
+                Lines = @('   **     **', ' ****** ******', '*************', ' ***********', '   *******', '     ***', '      *')
+                Colors = @('Magenta', 'Red', 'DarkRed', 'Red', 'Magenta', 'DarkMagenta', 'Red')
+            }
+        }
+        'smile' {
+            return [pscustomobject]@{
+                Name = 'smile'; Title = 'SMILE'
+                Lines = @('   .-------.', '  /  o   o  \', ' |     ^     |', ' |   \___/   |', '  \         /', "   '-------'")
+                Colors = @('Yellow', 'DarkYellow', 'Yellow', 'Green', 'DarkYellow', 'Yellow')
+            }
+        }
+        'cat' {
+            return [pscustomobject]@{
+                Name = 'cat'; Title = 'CAT'
+                Lines = @(' /\_/\', '( o.o )', ' > ^ <', ' /|_|\', '  / \')
+                Colors = @('Cyan', 'White', 'Magenta', 'DarkCyan', 'Cyan')
+            }
+        }
+        'flower' {
+            return [pscustomobject]@{
+                Name = 'flower'; Title = 'FLOWER'
+                Lines = @('    .-.', ' .-(   )-.', '(   \ /   )', " '-( * )-'", '    | |', '   /| |\', '  /_| |_\')
+                Colors = @('Magenta', 'Red', 'Magenta', 'Yellow', 'Green', 'DarkGreen', 'Green')
+            }
+        }
+        'rocket' {
+            return [pscustomobject]@{
+                Name = 'rocket'; Title = 'ROCKET'
+                Lines = @('      /\', '     /  \', '    | () |', '    |    |', '   /|____|\', '     /\/\', '    /_||_\')
+                Colors = @('White', 'Cyan', 'Yellow', 'White', 'DarkCyan', 'Red', 'DarkRed')
+            }
+        }
+        'party' {
+            return [pscustomobject]@{
+                Name = 'party'; Title = 'PARTY'
+                Lines = @('*   .  *   .', '  \  |  /', '---  *  ---', '  /  |  \', '.   /\   *', '   /##\', '  /####\')
+                Colors = @('Magenta', 'Cyan', 'Yellow', 'Green', 'Red', 'DarkMagenta', 'Magenta')
+            }
+        }
+        default { return $null }
+    }
+}
+
+function Get-StickerNameFromContent {
+    param([AllowEmptyString()] [string] $Content)
+
+    $match = [regex]::Match($Content, '^\[\[powerchat-sticker:([a-z0-9_-]+)\]\]$')
+    if (-not $match.Success) {
+        return $null
+    }
+
+    $name = $match.Groups[1].Value
+    if ($null -eq (Get-ChatStickerDefinition -Name $name)) {
+        return $null
+    }
+    return $name
+}
+
+function Write-ChatSticker {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [string] $Indent = '    '
+    )
+
+    $sticker = Get-ChatStickerDefinition -Name $Name
+    if ($null -eq $sticker) {
+        return
+    }
+
+    for ($index = 0; $index -lt $sticker.Lines.Count; $index++) {
+        Write-Host ($Indent + $sticker.Lines[$index]) -ForegroundColor $sticker.Colors[$index]
+    }
+}
+
+function Show-StickerGallery {
+    Write-Host ''
+    Write-Host 'POWERCHAT STICKERS' -ForegroundColor Cyan
+    Write-Host 'Send one with: /sticker name' -ForegroundColor DarkGray
+    foreach ($stickerName in $script:StickerNames) {
+        $sticker = Get-ChatStickerDefinition -Name $stickerName
+        Write-Host ''
+        Write-Host ("  {0,-8} /sticker {1}" -f $sticker.Title, $sticker.Name) -ForegroundColor White
+        Write-ChatSticker -Name $sticker.Name -Indent '  '
+    }
+    Write-Host ''
+}
+
 function Write-ChatMessage {
     param([Parameter(Mandatory)] $Message)
 
@@ -303,11 +399,19 @@ function Write-ChatMessage {
     $name = if ($Message.profiles -and $Message.profiles.nickname) { [string]$Message.profiles.nickname } else { 'Guest' }
     $text = ([string]$Message.content) -replace '[\r\n]+', ' '
     $own = ([string]$Message.user_id -eq [string]$script:Session.user_id)
+    $stickerName = Get-StickerNameFromContent -Content ([string]$Message.content)
 
     Write-Host "[$time] " -NoNewline -ForegroundColor DarkGray
     Write-Host "$name " -NoNewline -ForegroundColor $(if ($own) { 'Cyan' } else { 'Magenta' })
     Write-Host "#$messageId" -NoNewline -ForegroundColor DarkGray
-    Write-Host ": $text"
+    if ($stickerName) {
+        $sticker = Get-ChatStickerDefinition -Name $stickerName
+        Write-Host ": sticker $($sticker.Title)" -ForegroundColor Yellow
+        Write-ChatSticker -Name $stickerName
+    }
+    else {
+        Write-Host ": $text"
+    }
 }
 
 function Send-ChatMessage {
@@ -321,6 +425,17 @@ function Send-ChatMessage {
     Invoke-PowerChatApi -Method POST -Path '/rest/v1/messages' -Body @{
         content = $Text
     } -AccessToken $script:Session.access_token -ExtraHeaders @{ Prefer = 'return=minimal' } | Out-Null
+}
+
+function Send-ChatSticker {
+    param([Parameter(Mandatory)] [string] $Name)
+
+    $sticker = Get-ChatStickerDefinition -Name $Name
+    if ($null -eq $sticker) {
+        throw "Unknown sticker '$Name'. Type /stickers to see the collection."
+    }
+
+    Send-ChatMessage -Text "[[powerchat-sticker:$($sticker.Name)]]"
 }
 
 function Remove-OwnMessage {
@@ -399,7 +514,14 @@ function Show-WindowsMessageNotification {
         else {
             'New message'
         }
-        $preview = (([string]$Message.content) -replace '[\r\n]+', ' ').Trim()
+        $stickerName = Get-StickerNameFromContent -Content ([string]$Message.content)
+        if ($stickerName) {
+            $sticker = Get-ChatStickerDefinition -Name $stickerName
+            $preview = "Sent a sticker: $($sticker.Title)"
+        }
+        else {
+            $preview = (([string]$Message.content) -replace '[\r\n]+', ' ').Trim()
+        }
         if ($preview.Length -gt 200) {
             $preview = $preview.Substring(0, 197) + '...'
         }
@@ -440,6 +562,8 @@ function Show-Help {
     Write-Host ''
     Write-Host 'Commands:' -ForegroundColor Cyan
     Write-Host '  /help                 show this help'
+    Write-Host '  /stickers             show all colored stickers'
+    Write-Host '  /sticker heart        send a colored sticker'
     Write-Host '  /nick NewName         change your nickname'
     Write-Host '  /delete 123           delete your own message'
     Write-Host '  /report 123 reason    report a message to moderators'
@@ -461,6 +585,13 @@ function Invoke-ChatCommand {
     switch ($command) {
         '/help' {
             Show-Help
+        }
+        '/stickers' {
+            Show-StickerGallery
+        }
+        '/sticker' {
+            if ($parts.Count -lt 2) { throw 'Usage: /sticker heart. Type /stickers to see all names.' }
+            Send-ChatSticker -Name $parts[1]
         }
         '/nick' {
             if ($parts.Count -lt 2) { throw 'Usage: /nick NewName' }
@@ -590,6 +721,11 @@ function Start-ChatLoop {
         Clear-CurrentInputLine
         Write-Host 'Disconnected from PowerChat. See you soon!' -ForegroundColor Cyan
     }
+}
+
+if ($StickerPreview) {
+    Show-StickerGallery
+    exit 0
 }
 
 if ($ValidateOnly) {
